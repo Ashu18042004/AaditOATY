@@ -1,5 +1,5 @@
 # ==============================================================================
-# OATY 3.0 OPERATIONS DASHBOARD - BLUE THEME & HIGH VISIBILITY
+# OATY 3.0 DASHBOARD - FIXED (NO WEIGHT ERROR) & HIGH VISIBILITY
 # ==============================================================================
 import streamlit as st
 import pandas as pd
@@ -24,45 +24,45 @@ st.markdown("""
     /* 2. Headers - Navy Blue & Visible */
     h1, h2, h3, h4, label {
         color: #1e3a8a !important; /* Navy Blue */
-        font-weight: 800 !important;
+        font-weight: 900 !important;
         text-transform: uppercase;
     }
     
     /* 3. Metric Cards - Professional Look */
     div[data-testid="stMetric"] {
         background-color: #ffffff !important;
-        border: 1px solid #bfdbfe !important; /* Light Blue Border */
-        border-left: 5px solid #1e3a8a !important; /* Thick Blue Accent */
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05) !important;
-        border-radius: 8px !important;
+        border: 2px solid #1e3a8a !important; /* Thick Navy Border */
+        box-shadow: 4px 4px 0px rgba(30, 58, 138, 0.1) !important;
+        border-radius: 6px !important;
         padding: 15px !important;
     }
     div[data-testid="stMetricLabel"] {
-        color: #475569 !important; /* Slate Grey */
+        color: #1e3a8a !important; /* Navy Blue */
         font-weight: bold !important;
-        font-size: 15px !important;
+        font-size: 16px !important;
     }
     div[data-testid="stMetricValue"] {
-        color: #1e3a8a !important; /* Navy Blue */
+        color: #000000 !important; /* Pure Black */
         font-weight: 900 !important;
-        font-size: 32px !important;
+        font-size: 36px !important;
     }
 
     /* 4. Sidebar */
     section[data-testid="stSidebar"] {
-        background-color: #eff6ff !important; /* Light Blue Sidebar */
-        border-right: 1px solid #dbeafe;
+        background-color: #eff6ff !important;
+        border-right: 2px solid #1e3a8a;
     }
     
     /* 5. Tables - Readable */
     thead tr th {
         background-color: #1e3a8a !important;
         color: white !important;
-        font-size: 14px !important;
+        font-size: 15px !important;
     }
     tbody tr td {
         color: #000000 !important;
-        font-weight: 500 !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -195,12 +195,13 @@ st.markdown("---")
 # --- HIGH VISIBILITY CHARTS ---
 c1, c2 = st.columns([2, 1])
 
-# Common Axis Styling
+# FIX: Removed 'weight' property. Used 'Arial Black' for bold effect.
 axis_style = dict(
     showgrid=True, 
-    gridcolor='#e5e7eb',
-    tickfont=dict(size=12, color='black', family='Arial', weight='bold'),
-    titlefont=dict(size=14, color='black', family='Arial', weight='bold')
+    gridcolor='#94a3b8', # Visible Grey Grid
+    gridwidth=1,
+    tickfont=dict(size=12, color='black', family='Arial Black'), # Bold Font
+    titlefont=dict(size=14, color='#1e3a8a', family='Arial Black') # Navy Blue Title
 )
 
 with c1:
@@ -208,21 +209,22 @@ with c1:
     fig = go.Figure()
     
     # 1. Standard (Blue)
-    fig.add_trace(go.Bar(x=res['Month'], y=res['Std'], name='Standard', marker_color='#3b82f6'))
-    # 2. Overtime (Dark Blue)
+    fig.add_trace(go.Bar(x=res['Month'], y=res['Std'], name='Standard', marker_color='#2563eb'))
+    # 2. Overtime (Navy)
     fig.add_trace(go.Bar(x=res['Month'], y=res['OT'], name='Overtime', marker_color='#1e3a8a'))
-    # 3. Subcontract (Orange for Contrast)
-    fig.add_trace(go.Bar(x=res['Month'], y=res['Sub'], name='Subcontract', marker_color='#f97316'))
-    # 4. Demand (Line)
+    # 3. Subcontract (Orange)
+    fig.add_trace(go.Bar(x=res['Month'], y=res['Sub'], name='Subcontract', marker_color='#ea580c'))
+    # 4. Demand (Red Line)
     fig.add_trace(go.Scatter(x=res['Month'], y=res['Adj_Demand'], name='Demand', line=dict(color='#dc2626', width=4)))
     
     fig.update_layout(
         barmode='stack',
         paper_bgcolor='white', plot_bgcolor='white',
         font=dict(color='black', family='Arial'),
-        legend=dict(orientation="h", y=1.1, font=dict(color="black")),
+        legend=dict(orientation="h", y=1.1, font=dict(color="black", size=12)),
         height=450,
-        xaxis=axis_style, yaxis=axis_style
+        xaxis=axis_style, 
+        yaxis=axis_style
     )
     st.plotly_chart(fig, use_container_width=True)
     st.caption("")
@@ -234,18 +236,19 @@ with c2:
     fig2.add_trace(go.Scatter(
         x=res['Month'], y=res['Inv'], fill='tozeroy',
         mode='lines',
-        line=dict(color='#10b981', width=3), # Green
+        line=dict(color='#059669', width=3), # Emerald Green
         fillcolor='rgba(16, 185, 129, 0.2)',
         name='Inventory'
     ))
     
-    fig2.add_hline(y=20000, line_dash="dash", line_color="#dc2626", annotation_text="Limit (20k)")
+    fig2.add_hline(y=20000, line_dash="solid", line_color="#dc2626", annotation_text="Limit (20k)")
     
     fig2.update_layout(
         paper_bgcolor='white', plot_bgcolor='white',
         font=dict(color='black', family='Arial'),
         height=450,
-        xaxis=axis_style, yaxis=dict(**axis_style, title="Units")
+        xaxis=axis_style, 
+        yaxis=dict(**axis_style, title="Units")
     )
     st.plotly_chart(fig2, use_container_width=True)
 
@@ -255,7 +258,6 @@ st.markdown("#### STRATEGY COMPARISON")
 
 df_comp = pd.DataFrame([{"STRATEGY": k, "COST": v, "DIFF": v-costs[best_strat]} for k,v in costs.items()]).sort_values("COST")
 
-# Use simple dataframe for maximum compatibility
 st.dataframe(
     df_comp.style.format({"COST": "${:,.0f}", "DIFF": "+${:,.0f}"}),
     use_container_width=True, hide_index=True
