@@ -1,7 +1,15 @@
 # ==============================================================================
-# PROJECT: OATY 3.0 OPERATIONS ANALYTICS DASHBOARD
-# PURPOSE: SOLVES Q3 OF THE OATY 3.0 OPERATIONS CASE (CAPACITY PLANNING)
-# AUTHOR: SENIOR OPERATIONS ANALYTICS ENGINEER
+# WHAT IS THIS IN THE CODE:
+# ------------------------------------------------------------------------------
+# THIS IS THE "OATY 3.0 OPERATIONS ANALYTICS DASHBOARD" (LEVEL 5 CASE STUDY).
+# IT SOLVES THE CAPACITY PLANNING PROBLEM USING DATA FROM APPENDIX 1.3 & 1.5.
+# IT CALCULATES THE OPTIMAL STRATEGY (CHASE, LEVEL, OR HYBRID) TO MINIMIZE 
+# TOTAL COSTS (BASE + OVERTIME + SUBCONTRACT + HOLDING).
+#
+# KEY FEATURES:
+# 1. READS DATA INTERNALLY (NO UPLOAD NEEDED).
+# 2. MATCHES EXCEL LOGIC (OT LIMITS = 7425 UNITS/WK, SUNDAY = 3300 UNITS/WK).
+# 3. HIGHLIGHTS "TOTAL COST" IN DARK BOLD COLORS (TARGET ~972k).
 # ==============================================================================
 
 import streamlit as st
@@ -9,291 +17,310 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-import os
 
 # -----------------------------------------------------------------------------
-# 1. SETUP & STYLING (CLEAN PROFESSIONAL THEME)
+# 1. SETUP & STYLING (WHITE BACKGROUND, DARK BOLD TEXT)
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="OATY 3.0 Operations Dashboard", layout="wide")
+st.set_page_config(page_title="OATY 3.0 Operations Analytics", layout="wide")
 
-# Force High-Contrast Professional Styling (No Emojis, Dark Text on White)
 st.markdown("""
     <style>
-    /* Main Background and Text */
+    /* 1. Global Background - White */
     .stApp {
         background-color: #ffffff;
-        color: #333333;
+        color: #000000;
+        font-family: 'Arial', sans-serif;
     }
-    
-    /* Headings - Dark Corporate Blue */
-    h1, h2, h3, h4 {
-        color: #1e3a8a !important;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+
+    /* 2. Headings - Dark Blue/Black */
+    h1, h2, h3 {
+        color: #0f172a !important; 
+        font-weight: 800;
     }
-    
-    /* Metrics Cards */
+
+    /* 3. METRIC CARDS - MAKE "TOTAL COST" AMAZING */
     div[data-testid="stMetric"] {
-        background-color: #f8f9fa;
-        border: 1px solid #e9ecef;
-        padding: 15px;
-        border-radius: 5px;
-        border-left: 5px solid #1e3a8a;
+        background-color: #f8fafc;
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
+    
+    /* The Label (e.g., "Total Cost") */
     div[data-testid="stMetricLabel"] {
-        color: #666666 !important;
+        font-size: 16px !important;
+        color: #64748b !important;
+        font-weight: 600;
     }
+
+    /* The Value (e.g., "$972,969") - DARK & BOLD */
     div[data-testid="stMetricValue"] {
-        color: #1e3a8a !important;
+        color: #000000 !important; /* Pure Black */
+        font-size: 36px !important;
+        font-weight: 900 !important; /* Extra Bold */
+        text-shadow: 0px 0px 1px rgba(0,0,0,0.1);
     }
-    
-    /* Sidebar Styling */
-    section[data-testid="stSidebar"] {
-        background-color: #f1f5f9;
+
+    /* 4. Tables */
+    thead tr th {
+        background-color: #f1f5f9 !important;
+        color: #000000 !important;
+        font-weight: bold !important;
     }
-    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] label {
-        color: #1e3a8a !important;
-    }
-    
-    /* Table Styling */
-    thead tr th:first-child { display:none }
-    tbody th { display:none }
     </style>
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. DATA ENGINE (INTERNAL GENERATION - NO EXTERNAL FILES REQUIRED)
+# 2. DATA ENGINE (VIABLE MODEL ACCORDING TO EXCEL)
 # -----------------------------------------------------------------------------
-def ensure_data_exists():
-    """
-    Internally generates the exact data from Case Exhibits 1.3 and 1.5
-    to ensure the dashboard runs without external file dependencies.
-    """
-    # Exhibit 1.5: Volume Planning Data
-    data_vol = {
-        "Month": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-        "Production_Weeks": [4, 3, 4, 4, 5, 4, 3, 3, 4, 5, 4, 4],
-        "Sales_Weeks":      [4, 4, 5, 4, 5, 4, 4, 5, 4, 5, 4, 4],
-        "Avg_Weekly_Demand":[17880, 18860, 18700, 19600, 17150, 15000, 15000, 15000, 15500, 16500, 17000, 24000],
-        "Total_Demand":     [71520, 75440, 93500, 78400, 85750, 60000, 60000, 75000, 62000, 82500, 68000, 96000]
-    }
-    
-    # Exhibit 1.3: Segment Mix
-    data_seg = {
-        "Month": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-        "Consumer": [5960, 6090, 6030, 6540, 5800, 5000, 5000, 5000, 5000, 5500, 5600, 8000],
-        "PC":       [8940, 9550, 9510, 9770, 8450, 7500, 7500, 7500, 8000, 8200, 8500, 12000],
-        "Professional": [2980, 3220, 3160, 3290, 2900, 2500, 2500, 2500, 2500, 2800, 2900, 4000]
-    }
-
-    # Case Inputs & Assumptions
-    data_inp = {
-        "Parameter": ["Weekly Base Capacity", "Weekday+Sat OT Limit (Units/Wk)", "Sunday OT Limit (Units/Wk)", 
-                      "Holding Cost (Annual %)", "OT Cost Multiplier (Weekday)", "OT Cost Multiplier (Sunday)", 
-                      "Subcontract Cost Multiplier", "Warehouse Capacity"],
-        "Value": [16500, 7425, 3300, 0.20, 1.5, 2.0, 1.25, 20000]
-    }
-
-    df_vol = pd.DataFrame(data_vol)
-    df_seg = pd.DataFrame(data_seg)
-    df_inp = pd.DataFrame(data_inp)
-
-    # Create Excel in memory/disk for processing
-    with pd.ExcelWriter('OATY_Aadit.xlsx', engine='openpyxl') as writer:
-        df_vol.to_excel(writer, sheet_name='Volume_Planning', index=False)
-        df_seg.to_excel(writer, sheet_name='Segment_Mix', index=False)
-        df_inp.to_excel(writer, sheet_name='Inputs', index=False)
-
 @st.cache_data
-def load_data():
-    ensure_data_exists()
-    xls = pd.ExcelFile('OATY_Aadit.xlsx')
-    df_vol = pd.read_excel(xls, 'Volume_Planning')
-    df_seg = pd.read_excel(xls, 'Segment_Mix')
-    df_inp = pd.read_excel(xls, 'Inputs')
+def load_case_data():
+    """
+    Reconstructs the Exact Data from OATY 3.0 Case Exhibits.
+    """
+    # Appendix 1.5: Volume Planning
+    # Note: Production Weeks vary (Jan=4, Feb=3, May=5...)
+    df = pd.DataFrame({
+        "Month": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+        "Prod_Weeks": [4, 3, 4, 4, 5, 4, 3, 3, 4, 5, 4, 4],
+        "Sales_Weeks": [4, 4, 5, 4, 5, 4, 4, 5, 4, 5, 4, 4],
+        "Demand_Total": [71520, 75440, 93500, 78400, 85750, 60000, 60000, 75000, 62000, 82500, 68000, 96000]
+    })
     
-    const = dict(zip(df_inp['Parameter'], df_inp['Value']))
-    return df_vol, df_seg, const
+    # Constants from Inputs & Assumptions Snippet
+    CONSTANTS = {
+        "Base_Cap_Weekly": 16500,       # Base Capacity (5 days)
+        # OT Logic derived from Overtime Model.csv Snippet:
+        # Jan (4 wks): Base=66k. Max OT w/o Sun=29700. 
+        # 29700/4 = 7425 units/wk (45% of Base).
+        "OT_Limit_Weekly": 7425,        
+        # Jan (4 wks): Max OT w/ Sun=42900. Diff=13200. 
+        # 13200/4 = 3300 units/wk (20% of Base).
+        "Sun_Limit_Weekly": 3300,
+        "Warehouse_Cap": 20000,
+        "Cost_Base": 1.0,
+        "Cost_OT_Std": 1.5,
+        "Cost_OT_Sun": 2.0,
+        "Cost_Sub": 1.25,
+        "Cost_Hold_Annual": 0.20        # 20% per annum
+    }
+    return df, CONSTANTS
 
-# Load Data
-try:
-    df_vol, df_seg, CONSTANTS = load_data()
-except Exception as e:
-    st.error(f"Critical Data Error: {e}")
-    st.stop()
+df_case, C = load_case_data()
 
 # -----------------------------------------------------------------------------
 # 3. SIDEBAR CONTROLS
 # -----------------------------------------------------------------------------
-st.sidebar.title("Operations Control")
+st.sidebar.header("🕹️ Strategy Controls")
 st.sidebar.markdown("---")
 
-# Scenario Logic
-scenario = st.sidebar.selectbox("Demand Scenario", ["Base Forecast", "Boom (+15%)", "Slump (-15%)"])
-d_mult = 1.15 if "Boom" in scenario else (0.85 if "Slump" in scenario else 1.0)
+# Scenarios
+scenario = st.sidebar.selectbox("Demand Scenario", ["Base Forecast (Case)", "Peak (+15%)", "Slow (-15%)"])
+d_mult = 1.15 if "Peak" in scenario else (0.85 if "Slow" in scenario else 1.0)
 
-# Strategy Logic
-strategy = st.sidebar.selectbox("Operational Strategy", [
-    "Chase (Prioritize OT)", 
-    "Level Production (Inventory Focus)", 
-    "Subcontract Heavy", 
-    "Hybrid (Balanced Approach)"
+# Strategy
+# "Chase" logic matches the 'Overtime Model.csv' snippet behavior
+strategy = st.sidebar.selectbox("Fulfillment Strategy", [
+    "Chase Demand (OT + Subcontract)",
+    "Level Production (Build Inventory)",
+    "Subcontract Heavy (Zero OT)",
+    "Hybrid (Balanced)"
 ])
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("Financial Levers")
-h_cost = st.sidebar.slider("Annual Holding Cost %", 10, 40, 20) / 100.0
-ot_mult = st.sidebar.number_input("Overtime Multiplier", 1.0, 3.0, 1.5, 0.1)
-sub_mult = st.sidebar.number_input("Subcontract Multiplier", 1.0, 3.0, 1.25, 0.05)
-sunday = st.sidebar.checkbox("Allow Sunday OT (2.0x)", value=False)
+st.sidebar.markdown("### 💰 Cost Parameters")
+h_cost = st.sidebar.slider("Annual Holding Cost %", 10, 30, int(C['Cost_Hold_Annual']*100)) / 100.0
+ot_rate = st.sidebar.number_input("Overtime Rate", 1.0, 2.5, C['Cost_OT_Std'])
+sub_rate = st.sidebar.number_input("Subcontract Rate", 1.0, 2.0, C['Cost_Sub'])
+sunday = st.sidebar.checkbox("Enable Sunday OT", value=False)
 
 # -----------------------------------------------------------------------------
-# 4. ANALYTICS SIMULATION ENGINE
+# 4. ANALYTICS ENGINE (THE CALCULATOR)
 # -----------------------------------------------------------------------------
-def run_analytics(df_v, dem_m, strat, hc, ot_m, sub_m, sun_ok):
-    df = df_v.copy()
+def run_simulation(dem_m, strat, hc, ot_r, sub_r, sun_on):
+    df = df_case.copy()
     
-    # 1. Demand & Capacity
-    df['Demand'] = df['Total_Demand'] * dem_m
-    df['Base_Cap'] = df['Production_Weeks'] * CONSTANTS['Weekly Base Capacity']
+    # 1. Setup Monthly Demands & Capacities
+    df['Demand'] = df['Demand_Total'] * dem_m
+    df['Cap_Base'] = df['Prod_Weeks'] * C['Base_Cap_Weekly']
     
-    # OT Limit Calculation
-    ot_limit_wk = CONSTANTS['Weekday+Sat OT Limit (Units/Wk)']
-    if sun_ok: ot_limit_wk += CONSTANTS['Sunday OT Limit (Units/Wk)']
-    df['Max_OT'] = df['Production_Weeks'] * ot_limit_wk
-
-    # 2. Strategy Execution
+    # OT Capacity Calculation
+    ot_limit = C['OT_Limit_Weekly']
+    if sun_on: ot_limit += C['Sun_Limit_Weekly']
+    df['Cap_Max_OT'] = df['Prod_Weeks'] * ot_limit
+    
+    # 2. Iterate Months (Continuity of Inventory)
     prod, ot, sub, inv = [], [], [], [0]
     curr_inv = 0
     
-    # Level Target: Total Demand / Total Production Weeks
-    level_daily_rate = df['Demand'].sum() / df['Production_Weeks'].sum()
-
+    # Level Prod Target: Total Demand / Total Weeks
+    total_d = df['Demand'].sum()
+    total_w = df['Prod_Weeks'].sum()
+    level_rate = total_d / total_w
+    
     for i, row in df.iterrows():
-        dem = row['Demand']
-        cap = row['Base_Cap']
-        max_o = row['Max_OT']
-        weeks = row['Production_Weeks']
+        d = row['Demand']
+        base = row['Cap_Base']
+        max_ot = row['Cap_Max_OT']
+        w = row['Prod_Weeks']
         
-        p, o, s = 0, 0, 0 # Standard, OT, Subcontract
+        p, o, s = 0, 0, 0 # Standard, OT, Subcontract units
         
-        if strat == "Chase (Prioritize OT)":
-            p = cap
-            gap = dem - p - curr_inv
-            if gap > 0:
-                o = min(gap, max_o)
-                s = max(0, gap - o)
+        if strat == "Chase Demand (OT + Subcontract)":
+            # 1. Use Inventory first
+            net_req = d - curr_inv
+            
+            # 2. Use Base Production (up to Base Cap or Net Req)
+            # Actually, standard Chase usually maxes Base first to avoid idle labor
+            p = base # Assume we pay for base capacity regardless (Factory Loading)
+            
+            remaining = net_req - p
+            
+            if remaining > 0:
+                # 3. Use Overtime
+                o = min(remaining, max_ot)
+                # 4. Use Subcontract
+                s = max(0, remaining - o)
                 curr_inv = 0
             else:
-                curr_inv = abs(gap)
+                # Surplus goes to inventory
+                curr_inv = -remaining # (p + curr_inv - d)
+
+        elif strat == "Level Production (Build Inventory)":
+            target = level_rate * w
+            # Produce Target (Split into Base + OT + Sub)
+            # Fill Base
+            p = min(target, base)
+            rem_target = target - p
+            # Fill OT
+            if rem_target > 0:
+                o = min(rem_target, max_ot)
+                rem_target -= o
+            # Fill Sub
+            if rem_target > 0:
+                s = rem_target
                 
-        elif strat == "Level Production (Inventory Focus)":
-            target = level_daily_rate * weeks
-            p = min(target, cap)
-            remainder = target - p
-            
-            # If target > cap, use OT
-            if remainder > 0:
-                o = min(remainder, max_o)
-                s = max(0, remainder - o)
-            
-            # Recalculate Inventory to see if we are short
-            projected_inv = curr_inv + p + o + s - dem
-            if projected_inv < 0:
-                s += abs(projected_inv) # Emergency Subcontract
+            # Inventory Check
+            ending = curr_inv + p + o + s - d
+            if ending < 0:
+                # Shortage! Must Subcontract the gap
+                s += abs(ending)
                 curr_inv = 0
             else:
-                curr_inv = projected_inv
-
-        elif strat == "Subcontract Heavy":
-            p = cap
-            gap = dem - p - curr_inv
-            if gap > 0:
-                s = gap
+                curr_inv = ending
+                
+        elif strat == "Subcontract Heavy (Zero OT)":
+            p = base
+            net = d - curr_inv - p
+            if net > 0:
+                s = net
                 curr_inv = 0
             else:
-                curr_inv = abs(gap)
-        
+                curr_inv = abs(net)
+                
         else: # Hybrid
-            p = cap
-            gap = dem - p - curr_inv
-            if gap > 0:
-                o = min(gap, max_o * 0.5) # Use only 50% OT
-                s = max(0, gap - o)
+            p = base
+            net = d - curr_inv - p
+            if net > 0:
+                # Use 50% OT Capacity
+                o = min(net, max_ot * 0.5)
+                s = max(0, net - o)
                 curr_inv = 0
             else:
-                curr_inv = abs(gap)
-
+                curr_inv = abs(net)
+                
         prod.append(p); ot.append(o); sub.append(s); inv.append(curr_inv)
-
+        
     df['Prod_Std'] = prod
     df['Prod_OT'] = ot
     df['Prod_Sub'] = sub
-    df['Ending_Inv'] = inv[1:]
+    df['End_Inv'] = inv[1:]
     
     # 3. Financials
-    df['Cost_Base'] = df['Prod_Std'] * 1.0
-    df['Cost_OT'] = df['Prod_OT'] * ot_m
-    df['Cost_Sub'] = df['Prod_Sub'] * sub_m
-    df['Cost_Hold'] = df['Ending_Inv'] * (hc / 12)
-    df['Total_Cost'] = df['Cost_Base'] + df['Cost_OT'] + df['Cost_Sub'] + df['Cost_Hold']
+    # Base Cost usually sunk, but for comparison we price it at 1.0
+    df['$ Base'] = df['Prod_Std'] * 1.0
+    df['$ OT'] = df['Prod_OT'] * ot_r
+    df['$ Sub'] = df['Prod_Sub'] * sub_r
+    # Holding Cost: Monthly Rate * Ending Inventory
+    df['$ Hold'] = df['End_Inv'] * (hc / 12)
+    
+    df['Total Cost'] = df['$ Base'] + df['$ OT'] + df['$ Sub'] + df['$ Hold']
     
     return df
 
-results = run_analytics(df_vol, d_mult, strategy, h_cost, ot_mult, sub_mult, sunday)
+res = run_simulation(d_mult, strategy, h_cost, ot_rate, sub_rate, sunday)
 
 # -----------------------------------------------------------------------------
-# 5. DASHBOARD VISUALIZATION
+# 5. DASHBOARD LAYOUT
 # -----------------------------------------------------------------------------
-st.title("OATY 3.0: Strategic Operations Dashboard")
-st.markdown(f"**View:** {scenario} | **Mode:** {strategy}")
+st.title("OATY 3.0 OPERATIONS DASHBOARD")
+st.markdown("### 📊 Strategic Analysis & Cost Modeling")
 
-# --- KPI Cards ---
-k1, k2, k3, k4 = st.columns(4)
-total_c = results['Total_Cost'].sum()
-avg_inv = results['Ending_Inv'].mean()
-max_sub = results['Prod_Sub'].max()
-util = (results['Prod_Std'].sum() + results['Prod_OT'].sum()) / (results['Base_Cap'].sum() + results['Max_OT'].sum())
+# --- SECTION A: THE BIG NUMBERS ---
+# This is where 972969 (or similar viable Excel numbers) will appear
+total_c = res['Total Cost'].sum()
+avg_inv = res['End_Inv'].mean()
+max_sub = res['Prod_Sub'].max()
+util_rate = (res['Prod_Std'].sum() + res['Prod_OT'].sum()) / (res['Cap_Base'].sum() + res['Cap_Max_OT'].sum())
 
-k1.metric("Est. Total Cost", f"${total_c:,.0f}", delta="Annual")
-k2.metric("Avg Inventory", f"{avg_inv:,.0f}", help="Average monthly ending inventory")
-k3.metric("Capacity Utilization", f"{util:.1%}", help="Includes Standard + OT")
-k4.metric("Peak Outsourcing", f"{max_sub:,.0f}", help="Max units subcontracted in a single month")
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("TOTAL ESTIMATED COST", f"${total_c:,.0f}", delta="Target Optimization")
+col2.metric("Avg Inventory Levels", f"{avg_inv:,.0f} units")
+col3.metric("Capacity Utilization", f"{util_rate:.1%}")
+col4.metric("Peak Subcontracting", f"{max_sub:,.0f} units")
 
-# --- Aggregate Production Planning Graph ---
-st.markdown("### Aggregate Production Plan")
-fig_main = go.Figure()
-fig_main.add_trace(go.Bar(x=results['Month'], y=results['Prod_Std'], name='Regular Cap', marker_color='#93c5fd'))
-fig_main.add_trace(go.Bar(x=results['Month'], y=results['Prod_OT'], name='Overtime', marker_color='#2563eb'))
-fig_main.add_trace(go.Bar(x=results['Month'], y=results['Prod_Sub'], name='Subcontract', marker_color='#f59e0b'))
-fig_main.add_trace(go.Scatter(x=results['Month'], y=results['Demand'], name='Demand', line=dict(color='#1e3a8a', width=4)))
+st.markdown("---")
 
-fig_main.update_layout(barmode='stack', template='plotly_white', height=450, 
-                      legend=dict(orientation="h", y=1.1))
-st.plotly_chart(fig_main, use_container_width=True)
-
-# --- Comparison & Analysis ---
-c1, c2 = st.columns(2)
+# --- SECTION B: VISUALS ---
+c1, c2 = st.columns([2, 1])
 
 with c1:
-    st.subheader("Inventory vs. Warehouse Limit")
-    fig_inv = px.area(results, x='Month', y='Ending_Inv', title="Inventory Levels", color_discrete_sequence=['#10b981'])
-    fig_inv.add_hline(y=CONSTANTS['Warehouse Capacity'], line_dash="dash", line_color="red", annotation_text="Limit (20k)")
-    fig_inv.update_layout(template='plotly_white')
-    st.plotly_chart(fig_inv, use_container_width=True)
+    st.subheader("Aggregate Production Plan")
+    # Stacked Bar Chart
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=res['Month'], y=res['Prod_Std'], name='Standard Prod', marker_color='#cbd5e1')) # Light Grey
+    fig.add_trace(go.Bar(x=res['Month'], y=res['Prod_OT'], name='Overtime', marker_color='#334155')) # Dark Slate
+    fig.add_trace(go.Bar(x=res['Month'], y=res['Prod_Sub'], name='Subcontract', marker_color='#000000')) # Black
+    
+    # Demand Line
+    fig.add_trace(go.Scatter(x=res['Month'], y=res['Demand'], name='Demand', 
+                             line=dict(color='#dc2626', width=4))) # Red
+    
+    fig.update_layout(barmode='stack', template='plotly_white', height=400, 
+                      legend=dict(orientation="h", y=1.1))
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption("")
 
 with c2:
-    st.subheader("Strategy Benchmarking")
-    # Live Comparison
-    strats = ["Chase (Prioritize OT)", "Level Production (Inventory Focus)", "Subcontract Heavy", "Hybrid (Balanced Approach)"]
-    comp_res = []
-    for s in strats:
-        r = run_analytics(df_vol, d_mult, s, h_cost, ot_mult, sub_mult, sunday)
-        comp_res.append({"Strategy": s, "Cost": r['Total_Cost'].sum(), "Max Inv": r['Ending_Inv'].max()})
-    
-    df_comp = pd.DataFrame(comp_res).set_index("Strategy")
-    st.dataframe(df_comp.style.format({"Cost": "${:,.0f}", "Max Inv": "{:,.0f}"}), use_container_width=True)
+    st.subheader("Inventory Monitor")
+    fig2 = px.area(res, x='Month', y='End_Inv', title="Warehouse Utilization",
+                   color_discrete_sequence=['#475569'])
+    fig2.add_hline(y=20000, line_dash="dash", line_color="red", annotation_text="Max 20k")
+    fig2.update_layout(template='plotly_white', height=400)
+    st.plotly_chart(fig2, use_container_width=True)
 
-# --- Automated Insights ---
+# --- SECTION C: STRATEGY COMPARISON ---
 st.markdown("---")
-best_strat = df_comp['Cost'].idxmin()
-st.info(f"Recommendation: Based on current parameters, '{best_strat}' is the optimal strategy.")
+st.subheader("🏆 Strategy Benchmarking (Viable Cost Model)")
+
+cols = st.columns(1)
+# Calculate all strategies for the table
+strats = ["Chase Demand (OT + Subcontract)", "Level Production (Build Inventory)", "Subcontract Heavy (Zero OT)", "Hybrid (Balanced)"]
+rows = []
+for s in strats:
+    r = run_simulation(d_mult, s, h_cost, ot_rate, sub_rate, sunday)
+    rows.append({
+        "Strategy": s,
+        "Total Cost": r['Total Cost'].sum(),
+        "OT Units": r['Prod_OT'].sum(),
+        "Subcontract Units": r['Prod_Sub'].sum(),
+        "Max Inventory": r['End_Inv'].max()
+    })
+
+comp_df = pd.DataFrame(rows).set_index("Strategy")
+st.dataframe(comp_df.style.format({"Total Cost": "${:,.0f}", "OT Units": "{:,.0f}", "Subcontract Units": "{:,.0f}", "Max Inventory": "{:,.0f}"})
+             .background_gradient(subset=["Total Cost"], cmap="Greys"), use_container_width=True)
+
+# Recommendation
+best = comp_df['Total Cost'].idxmin()
+st.success(f"**OPTIMAL STRATEGY:** {best} offers the lowest cost structure for the {scenario} scenario.")
