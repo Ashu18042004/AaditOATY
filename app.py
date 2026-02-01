@@ -1,3 +1,9 @@
+# ==============================================================================
+# PROJECT: OATY 3.0 OPERATIONS ANALYTICS DASHBOARD
+# PURPOSE: SOLVES Q3 OF THE OATY 3.0 OPERATIONS CASE (CAPACITY PLANNING)
+# AUTHOR: SENIOR OPERATIONS ANALYTICS ENGINEER
+# ==============================================================================
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -55,7 +61,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. DATA ENGINE (INTERNAL GENERATION)
+# 2. DATA ENGINE (INTERNAL GENERATION - NO EXTERNAL FILES REQUIRED)
 # -----------------------------------------------------------------------------
 def ensure_data_exists():
     """
@@ -264,7 +270,6 @@ fig_main.add_trace(go.Scatter(x=results['Month'], y=results['Demand'], name='Dem
 fig_main.update_layout(barmode='stack', template='plotly_white', height=450, 
                       legend=dict(orientation="h", y=1.1))
 st.plotly_chart(fig_main, use_container_width=True)
-st.caption("")
 
 # --- Comparison & Analysis ---
 c1, c2 = st.columns(2)
