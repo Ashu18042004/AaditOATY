@@ -1,425 +1,314 @@
-"""
-Mandexor Memory Production Planning Dashboard
-OATY 3.0 Case Study - Question 3 Analysis
-
-Simplified version with robust error handling
-"""
-
 import streamlit as st
-
-# --- 1. CONFIG MUST BE FIRST ---
-# This command must be the very first Streamlit command run.
-# We place it right after the streamlit import to prevent errors.
-st.set_page_config(
-    page_title="Mandexor Memory - Production Planning Dashboard",
-    page_layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# --- 2. NOW IMPORT OTHER LIBRARIES ---
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-from plotly.subplots import make_subplots
-from datetime import datetime
-import warnings
 
-# Filter warnings after config
-warnings.filterwarnings('ignore')
+# -----------------------------------------------------------------------------
+# 1. PAGE CONFIGURATION & STYLING
+# -----------------------------------------------------------------------------
+st.set_page_config(page_title="OATY 3.0 Ops Strategy", layout="wide", page_icon="🏭")
 
-# --- 3. CSS STYLING ---
+# Custom CSS for Professional Blue/White Theme
 st.markdown("""
     <style>
-    .big-font {
-        font-size: 24px !important;
-        font-weight: bold;
-        color: #1f77b4;
+    /* Main Background */
+    .stApp { background-color: #F4F6F9; }
+    
+    /* Headings */
+    h1, h2, h3 { color: #0f2557; font-family: 'Helvetica Neue', sans-serif; font-weight: 700; }
+    
+    /* Metrics Cards */
+    div[data-testid="stMetric"] {
+        background-color: #ffffff;
+        padding: 15px;
+        border-radius: 8px;
+        border-left: 5px solid #2e86de;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
     }
-    .medium-font {
-        font-size: 18px !important;
-        font-weight: bold;
-        color: #2ca02c;
-    }
+    
+    /* Tables */
+    .dataframe { font-size: 14px; }
+    
+    /* Sidebar */
+    section[data-testid="stSidebar"] { background-color: #0f2557; }
+    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] label { color: #ffffff; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 4. DATA LOADING & PROCESSING ---
+# -----------------------------------------------------------------------------
+# 2. DATA ENGINE
+# -----------------------------------------------------------------------------
 @st.cache_data
-def load_case_data():
-    """Load all case study data"""
-    
-    # Demand data from case (Appendix 1.3 and 1.5)
-    demand_data = pd.DataFrame({
-        'Month': ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
-                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-        'Production_weeks': [4, 3, 4, 4, 5, 4, 3, 3, 4, 5, 4, 4],
-        'Sales_weeks': [4, 4, 5, 4, 5, 4, 4, 5, 4, 5, 4, 4],
-        'Avg_weekly_demand': [17880, 18860, 18700, 19600, 17150, 15000,
-                             15000, 15000, 15500, 16500, 17000, 24000],
-        'Total_monthly_demand': [71520, 75440, 93500, 78400, 85750, 60000,
-                                60000, 75000, 62000, 82500, 68000, 96000]
-    })
-    
-    params = {
-        'weekly_capacity': 16500,
-        'inventory_holding_cost': 0.20,
-        'overtime_cost_weekday': 1.50,
-        'overtime_cost_sunday': 2.00,
-        'subcontract_cost': 1.25,
-        'warehouse_capacity': 20000,
-        'opening_inventory': 0
-    }
-    
-    return demand_data, params
+def get_data():
+    try:
+        # Load the generated Excel file
+        xls = pd.ExcelFile('OATY_Aadit.xlsx')
+        df_vol = pd.read_excel(xls, 'Volume_Planning')
+        df_seg = pd.read_excel(xls, 'Segment_Mix')
+        df_inp = pd.read_excel(xls, 'Inputs')
+        
+        # Extract constants for easy access
+        const = dict(zip(df_inp['Parameter'], df_inp['Value']))
+        return df_vol, df_seg, const
+    except FileNotFoundError:
+        st.error("Data file 'OATY_Aadit.xlsx' not found. Please run the data generator script first.")
+        st.stop()
 
-class ProductionPlanner:
-    """Production planning with scenario analysis"""
-    
-    def __init__(self, demand_data, params):
-        self.demand_data = demand_data.copy()
-        self.params = params
-        
-    def apply_scenario(self, scenario='base'):
-        """Apply demand scenario"""
-        df = self.demand_data.copy()
-        
-        if scenario == 'optimistic':
-            df['Total_monthly_demand'] *= 1.15
-            df['Avg_weekly_demand'] *= 1.15
-        elif scenario == 'pessimistic':
-            df['Total_monthly_demand'] *= 0.85
-            df['Avg_weekly_demand'] *= 0.85
-        elif scenario == 'volatile':
-            np.random.seed(42)
-            variation = np.random.uniform(0.8, 1.2, len(df))
-            df['Total_monthly_demand'] *= variation
-            df['Avg_weekly_demand'] *= variation
-        
-        # Calculate capacity
-        df['Normal_capacity'] = df['Production_weeks'] * self.params['weekly_capacity']
-        df['Capacity_gap'] = df['Total_monthly_demand'] - df['Normal_capacity']
-        
-        return df
-    
-    def optimize_strategy(self, demand_df, ot_weight=0.6, sub_weight=0.4):
-        """Optimize production strategy"""
-        results = []
-        inventory = self.params['opening_inventory']
-        total_cost = 0
-        
-        for idx, row in demand_df.iterrows():
-            demand = row['Total_monthly_demand']
-            capacity = row['Normal_capacity']
-            gap = row['Capacity_gap']
-            
-            overtime = 0
-            subcontract = 0
-            cost = 0
-            
-            if gap <= 0:  # Excess capacity
-                inventory += abs(gap)
-                cost = inventory * 0.02  # Monthly holding cost
-                strategy = 'Inventory Build'
-            else:  # Shortfall
-                # Use inventory first
-                from_inventory = min(gap, inventory)
-                inventory -= from_inventory
-                remaining = gap - from_inventory
-                
-                if remaining > 0:
-                    # Allocate between overtime and subcontract
-                    max_overtime = capacity * 0.1  # 10% via overtime
-                    overtime = min(remaining * ot_weight, max_overtime)
-                    subcontract = remaining - overtime
-                    
-                    cost = (overtime * 150) + (subcontract * 125)  # Simplified cost
-                
-                strategy = 'Mixed' if subcontract > 0 else 'Overtime'
-            
-            total_cost += cost
-            
-            results.append({
-                'Month': row['Month'],
-                'Demand': demand,
-                'Capacity': capacity,
-                'Gap': gap,
-                'Overtime': overtime,
-                'Subcontract': subcontract,
-                'Inventory': inventory,
-                'Strategy': strategy,
-                'Cost': cost
-            })
-        
-        return pd.DataFrame(results), total_cost
+df_vol, df_seg, CONSTANTS = get_data()
 
-# --- 5. MAIN APP ---
-def main():
-    st.title("📊 Mandexor Memory Production Planning Dashboard")
-    st.markdown("**OATY 3.0 Case Study | Question 3: Production Level Changes**")
+# -----------------------------------------------------------------------------
+# 3. SIDEBAR CONTROLS
+# -----------------------------------------------------------------------------
+st.sidebar.title("⚙️ Operations Control")
+st.sidebar.markdown("---")
+
+# Scenario Selection
+scenario = st.sidebar.selectbox("Demand Scenario", ["Base Forecast (Case)", "Growth (+15%)", "Recession (-15%)"])
+demand_mult = 1.15 if "Growth" in scenario else (0.85 if "Recession" in scenario else 1.0)
+
+# Strategy Selection
+strategy_mode = st.sidebar.selectbox("Planning Strategy", [
+    "Chase Demand (Use Overtime)", 
+    "Level Production (Build Inventory)", 
+    "Subcontract Heavy (Min Assets)", 
+    "Hybrid (Balanced)"
+])
+
+st.sidebar.markdown("### Cost Drivers")
+holding_rate = st.sidebar.slider("Annual Holding Cost %", 10, 40, int(CONSTANTS['Holding Cost (Annual %)']*100)) / 100.0
+ot_mult = st.sidebar.number_input("Overtime Multiplier", 1.0, 3.0, CONSTANTS['OT Cost Multiplier (Weekday)'], 0.1)
+sub_mult = st.sidebar.number_input("Subcontract Multiplier", 1.0, 2.0, CONSTANTS['Subcontract Cost Multiplier'], 0.05)
+allow_sunday = st.sidebar.checkbox("Allow Sunday Work?", value=False)
+
+# -----------------------------------------------------------------------------
+# 4. CALCULATION ENGINE (THE BRAIN)
+# -----------------------------------------------------------------------------
+def run_simulation(d_mult, strat, h_cost, ot_cost_m, sub_cost_m, sunday_allowed):
+    # Setup working dataframe
+    df = df_vol.copy()
     
-    # Load data
-    demand_data, params = load_case_data()
-    planner = ProductionPlanner(demand_data, params)
+    # Apply Demand Multiplier
+    df['Demand'] = df['Total_Demand'] * d_mult
     
-    # Sidebar
-    st.sidebar.header("🎛️ Scenario Controls")
+    # Calculate Capacities (Weeks * Weekly Capacity)
+    df['Cap_Regular'] = df['Production_Weeks'] * CONSTANTS['Weekly Base Capacity']
     
-    scenario = st.sidebar.selectbox(
-        "Demand Scenario:",
-        ['base', 'optimistic', 'pessimistic', 'volatile'],
-        format_func=lambda x: x.upper()
-    )
+    # OT Capacity: (Weekday/Sat Limit * Weeks) + (Sunday Limit * Weeks if allowed)
+    ot_per_week = CONSTANTS['Weekday+Sat OT Limit (Units/Wk)']
+    if sunday_allowed:
+        ot_per_week += CONSTANTS['Sunday OT Limit (Units/Wk)']
+        
+    df['Cap_Max_OT'] = df['Production_Weeks'] * ot_per_week
     
-    ot_weight = st.sidebar.slider("Overtime Preference (%)", 0, 100, 60) / 100
-    sub_weight = 1 - ot_weight
+    # Initialize Tracking Lists
+    prod_std, prod_ot, prod_sub, closing_inv = [], [], [], []
+    current_inv = 0 # Starting Inventory assumed 0 per case
     
-    # Calculate
-    demand_df = planner.apply_scenario(scenario)
-    results_df, total_cost = planner.optimize_strategy(demand_df, ot_weight, sub_weight)
+    # Calculate Level Target (Total Demand / Total Weeks)
+    total_annual_demand = df['Demand'].sum()
+    total_weeks = df['Production_Weeks'].sum()
+    level_weekly_rate = total_annual_demand / total_weeks
     
-    # Key metrics
-    st.markdown("---")
-    st.subheader("📈 Executive Summary")
+    for i, row in df.iterrows():
+        demand = row['Demand']
+        reg_cap = row['Cap_Regular']
+        ot_cap = row['Cap_Max_OT']
+        weeks = row['Production_Weeks']
+        
+        # Decision Variables
+        p_std = 0
+        p_ot = 0
+        p_sub = 0
+        
+        # Strategy Logic
+        if strat == "Chase Demand (Use Overtime)":
+            # Produce standard max
+            p_std = reg_cap
+            # Check gap
+            gap = demand - p_std - current_inv
+            if gap > 0:
+                p_ot = min(gap, ot_cap) # Use OT up to limit
+                p_sub = max(0, gap - p_ot) # Subcontract rest
+            
+        elif strat == "Level Production (Build Inventory)":
+            # Target constant weekly output
+            target = level_weekly_rate * weeks
+            
+            # Fill standard first
+            p_std = min(target, reg_cap)
+            remainder = target - p_std
+            
+            # Use OT if target > regular capacity
+            if remainder > 0:
+                p_ot = min(remainder, ot_cap)
+                p_sub = max(0, remainder - p_ot)
+            
+            # Inventory adjustment (Force Subcontract if Inventory goes negative)
+            projected_inv = current_inv + p_std + p_ot + p_sub - demand
+            if projected_inv < 0:
+                p_sub += abs(projected_inv) # Emergency Subcontract
+            
+        elif strat == "Subcontract Heavy (Min Assets)":
+            # Only use regular capacity, then subcontract everything
+            p_std = reg_cap
+            gap = demand - p_std - current_inv
+            if gap > 0:
+                p_sub = gap
+                
+        elif strat == "Hybrid (Balanced)":
+            # Use 50% of available OT, then Subcontract
+            p_std = reg_cap
+            gap = demand - p_std - current_inv
+            if gap > 0:
+                p_ot = min(gap, ot_cap * 0.5)
+                p_sub = max(0, gap - p_ot)
+
+        # Update Inventory
+        total_prod = p_std + p_ot + p_sub
+        end_inv = current_inv + total_prod - demand
+        
+        # Store Results
+        prod_std.append(p_std)
+        prod_ot.append(p_ot)
+        prod_sub.append(p_sub)
+        closing_inv.append(end_inv)
+        current_inv = max(0, end_inv) # Carry forward
+
+    # Assign to DataFrame
+    df['Prod_Std'] = prod_std
+    df['Prod_OT'] = prod_ot
+    df['Prod_Sub'] = prod_sub
+    df['Inventory'] = closing_inv
     
-    col1, col2, col3, col4 = st.columns(4)
+    # Financials (Base Cost = 1 Unit)
+    df['Cost_Base'] = df['Prod_Std'] * 1.0
+    df['Cost_OT'] = df['Prod_OT'] * ot_cost_m
+    df['Cost_Sub'] = df['Prod_Sub'] * sub_cost_m
+    df['Cost_Hold'] = df['Inventory'] * (h_cost / 12) # Monthly Holding Cost
     
-    with col1:
-        st.metric("Total Demand", f"{results_df['Demand'].sum():,.0f} units")
+    df['Total_Cost'] = df['Cost_Base'] + df['Cost_OT'] + df['Cost_Sub'] + df['Cost_Hold']
     
-    with col2:
-        shortfall = demand_df[demand_df['Capacity_gap'] > 0]['Capacity_gap'].sum()
-        st.metric("Capacity Shortfall", f"{shortfall:,.0f} units")
+    return df
+
+# Run Active Simulation
+results = run_simulation(demand_mult, strategy_mode, holding_rate, ot_mult, sub_mult, allow_sunday)
+
+# -----------------------------------------------------------------------------
+# 5. DASHBOARD LAYOUT
+# -----------------------------------------------------------------------------
+
+st.title("🏭 OATY 3.0: Operational Planning Dashboard")
+st.markdown(f"**Scenario:** {scenario} | **Strategy:** {strategy_mode}")
+
+# --- Section 1: KPI Cards ---
+col1, col2, col3, col4 = st.columns(4)
+
+total_cost = results['Total_Cost'].sum()
+avg_inv = results['Inventory'].mean()
+max_shortfall = results['Prod_Sub'].sum() # Proxy for shortfall covered by external
+utilization = (results['Prod_Std'].sum() + results['Prod_OT'].sum()) / (results['Cap_Regular'].sum() + results['Cap_Max_OT'].sum())
+
+col1.metric("Total Operational Cost", f"${total_cost:,.0f}", delta_color="inverse")
+col2.metric("Avg Inventory Level", f"{avg_inv:,.0f} units")
+col3.metric("Capacity Utilization", f"{utilization:.1%}")
+col4.metric("Outsourced Units", f"{max_shortfall:,.0f}", help="Units produced via Subcontracting")
+
+st.markdown("---")
+
+# --- Section 2: Main Charts ---
+c1, c2 = st.columns([2, 1])
+
+with c1:
+    st.subheader("Monthly Demand vs. Capacity Stack")
+    fig_cap = go.Figure()
     
-    with col3:
-        st.metric("Overtime Production", f"{results_df['Overtime'].sum():,.0f} units")
+    # Stacked Bars for Production
+    fig_cap.add_trace(go.Bar(x=results['Month'], y=results['Prod_Std'], name='Regular Production', marker_color='#2e86de'))
+    fig_cap.add_trace(go.Bar(x=results['Month'], y=results['Prod_OT'], name='Overtime', marker_color='#ee5253'))
+    fig_cap.add_trace(go.Bar(x=results['Month'], y=results['Prod_Sub'], name='Subcontract', marker_color='#f39c12'))
     
-    with col4:
-        st.metric("Subcontracted", f"{results_df['Subcontract'].sum():,.0f} units")
+    # Line for Demand
+    fig_cap.add_trace(go.Scatter(x=results['Month'], y=results['Demand'], name='Total Demand', 
+                                 line=dict(color='#0f2557', width=4, dash='solid')))
     
-    # Strategic Recommendations
-    st.markdown("---")
-    st.subheader("💡 Question 3: How to Change Production Levels")
+    fig_cap.update_layout(barmode='stack', height=400, template='plotly_white', legend=dict(orientation="h", y=1.1))
+    st.plotly_chart(fig_cap, use_container_width=True)
+
+with c2:
+    st.subheader("Inventory vs. Warehouse Cap")
+    fig_inv = go.Figure()
+    fig_inv.add_trace(go.Scatter(x=results['Month'], y=results['Inventory'], fill='tozeroy', 
+                                 name='Inventory', line_color='#1dd1a1'))
     
-    st.success(f"""
-    **Scenario: {scenario.upper()}**
+    # Warehouse Limit Line
+    fig_inv.add_hline(y=CONSTANTS['Warehouse Capacity'], line_dash="dash", line_color="red", 
+                      annotation_text="Limit (20k)")
     
-    **Immediate Actions (0-1 month):**
-    - ±5% forecast change → Monitor only
-    - +10% → Activate weekday overtime (up to 2 hrs/day)
-    - +15% → Mixed strategy: {ot_weight*100:.0f}% overtime, {sub_weight*100:.0f}% subcontract
+    fig_inv.update_layout(height=400, template='plotly_white')
+    st.plotly_chart(fig_inv, use_container_width=True)
+
+# --- Section 3: Deep Dive & Comparisons ---
+c3, c4 = st.columns(2)
+
+with c3:
+    st.subheader("Cost Structure Breakdown")
+    cost_data = results[['Cost_Base', 'Cost_OT', 'Cost_Sub', 'Cost_Hold']].sum().reset_index()
+    cost_data.columns = ['Type', 'Value']
+    fig_pie = px.pie(cost_data, values='Value', names='Type', hole=0.4, 
+                     color_discrete_sequence=['#2e86de', '#ee5253', '#f39c12', '#1dd1a1'])
+    st.plotly_chart(fig_pie, use_container_width=True)
+
+with c4:
+    st.subheader("Strategy Comparison (Benchmarking)")
     
-    **Short-term (1-3 months):**
-    - Sustained +15% → Initiate subcontractor negotiations
-    - High volatility → Increase safety stock to 10% of demand
+    # Run all strategies in background
+    strategies = ["Chase Demand (Use Overtime)", "Level Production (Build Inventory)", "Subcontract Heavy (Min Assets)", "Hybrid (Balanced)"]
+    comp_data = []
     
-    **Medium-term (3-6 months):**
-    - Jun-Aug low period → Build inventory to {params['warehouse_capacity']:,} units
-    - Sustained high demand → Evaluate capacity expansion
+    for s in strategies:
+        res = run_simulation(demand_mult, s, holding_rate, ot_mult, sub_mult, allow_sunday)
+        comp_data.append({
+            "Strategy": s,
+            "Total Cost": res['Total_Cost'].sum(),
+            "Max Inventory": res['Inventory'].max(),
+            "Subcontracted": res['Prod_Sub'].sum()
+        })
     
-    **Current Scenario Results:**
-    - Total Cost: ${total_cost:,.2f}
-    - Cost per Unit: ${total_cost/results_df['Demand'].sum():.2f}
-    """)
+    df_comp = pd.DataFrame(comp_data)
+    df_comp = df_comp.sort_values("Total Cost")
     
-    # Tabs for visualizations
-    tab1, tab2, tab3 = st.tabs(["📊 Capacity Analysis", "💰 Cost & Strategy", "📈 Trends"])
-    
-    with tab1:
-        # Demand vs Capacity chart
-        fig1 = go.Figure()
-        
-        fig1.add_trace(go.Scatter(
-            x=results_df['Month'], 
-            y=results_df['Demand'],
-            name='Demand',
-            mode='lines+markers',
-            line=dict(color='red', width=3)
-        ))
-        
-        fig1.add_trace(go.Scatter(
-            x=results_df['Month'],
-            y=results_df['Capacity'],
-            name='Normal Capacity',
-            mode='lines+markers',
-            line=dict(color='green', width=3)
-        ))
-        
-        fig1.update_layout(
-            title="Monthly Demand vs Capacity",
-            xaxis_title="Month",
-            yaxis_title="Units",
-            hovermode='x unified',
-            height=500
-        )
-        
-        st.plotly_chart(fig1, use_container_width=True)
-        
-        # Gap chart
-        fig2 = go.Figure()
-        colors = ['red' if x > 0 else 'green' for x in results_df['Gap']]
-        
-        fig2.add_trace(go.Bar(
-            x=results_df['Month'],
-            y=results_df['Gap'],
-            marker_color=colors,
-            name='Capacity Gap'
-        ))
-        
-        fig2.update_layout(
-            title="Capacity Gap (Shortfall/Excess)",
-            xaxis_title="Month",
-            yaxis_title="Gap (Units)",
-            height=400
-        )
-        
-        st.plotly_chart(fig2, use_container_width=True)
-        
-        # Data table
-        st.dataframe(results_df, use_container_width=True)
-    
-    with tab2:
-        # Strategy distribution
-        strategy_counts = results_df['Strategy'].value_counts()
-        
-        fig3 = go.Figure(data=[go.Pie(
-            labels=strategy_counts.index,
-            values=strategy_counts.values,
-            hole=0.4
-        )])
-        
-        fig3.update_layout(
-            title="Strategy Distribution",
-            height=400
-        )
-        
-        st.plotly_chart(fig3, use_container_width=True)
-        
-        # Cost breakdown
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.metric("Total Cost", f"${total_cost:,.2f}")
-            st.metric("Overtime Cost", f"${results_df['Overtime'].sum() * 150:,.2f}")
-        
-        with col2:
-            st.metric("Cost per Unit", f"${total_cost/results_df['Demand'].sum():.2f}")
-            st.metric("Subcontract Cost", f"${results_df['Subcontract'].sum() * 125:,.2f}")
-        
-        # Monthly cost
-        fig4 = go.Figure()
-        fig4.add_trace(go.Bar(
-            x=results_df['Month'],
-            y=results_df['Cost'],
-            marker_color='steelblue'
-        ))
-        
-        fig4.update_layout(
-            title="Monthly Cost",
-            xaxis_title="Month",
-            yaxis_title="Cost ($)",
-            height=400
-        )
-        
-        st.plotly_chart(fig4, use_container_width=True)
-    
-    with tab3:
-        # Inventory trend
-        fig5 = go.Figure()
-        
-        fig5.add_trace(go.Scatter(
-            x=results_df['Month'],
-            y=results_df['Inventory'],
-            mode='lines+markers',
-            name='Inventory',
-            line=dict(color='purple', width=3)
-        ))
-        
-        fig5.add_hline(
-            y=params['warehouse_capacity'],
-            line_dash="dash",
-            line_color="red",
-            annotation_text="Warehouse Capacity"
-        )
-        
-        fig5.update_layout(
-            title="Inventory Levels",
-            xaxis_title="Month",
-            yaxis_title="Units",
-            height=400
-        )
-        
-        st.plotly_chart(fig5, use_container_width=True)
-        
-        # Production mix
-        fig6 = go.Figure()
-        
-        fig6.add_trace(go.Scatter(
-            x=results_df['Month'],
-            y=results_df['Capacity'],
-            name='Normal Production',
-            mode='lines',
-            stackgroup='one',
-            fillcolor='lightgreen'
-        ))
-        
-        fig6.add_trace(go.Scatter(
-            x=results_df['Month'],
-            y=results_df['Overtime'],
-            name='Overtime',
-            mode='lines',
-            stackgroup='one',
-            fillcolor='orange'
-        ))
-        
-        fig6.add_trace(go.Scatter(
-            x=results_df['Month'],
-            y=results_df['Subcontract'],
-            name='Subcontract',
-            mode='lines',
-            stackgroup='one',
-            fillcolor='purple'
-        ))
-        
-        fig6.update_layout(
-            title="Production Strategy Mix",
-            xaxis_title="Month",
-            yaxis_title="Units",
-            height=400
-        )
-        
-        st.plotly_chart(fig6, use_container_width=True)
-    
-    # Decision matrix
-    st.markdown("---")
-    st.subheader("🎯 Decision Support Matrix")
-    
-    decision_data = {
-        'Forecast Change': ['±5%', '±10%', '±15%', '±20%', '±30%+'],
-        'Response Time': ['Immediate', '1-2 weeks', '2-4 weeks', '1-2 months', '2-3 months'],
-        'Action': [
-            'Monitor only',
-            'Adjust overtime',
-            'Overtime + subcontract',
-            'Mixed strategy',
-            'Capacity review'
-        ],
-        'Cost Impact': ['Minimal', 'Low', 'Medium', 'Medium-High', 'High']
-    }
-    
-    st.table(pd.DataFrame(decision_data))
-    
-    # Export
-    st.markdown("---")
-    st.subheader("📥 Export Results")
-    
-    csv = results_df.to_csv(index=False)
-    st.download_button(
-        "📄 Download Production Plan (CSV)",
-        data=csv,
-        file_name=f"mandexor_plan_{scenario}_{datetime.now().strftime('%Y%m%d')}.csv",
-        mime="text/csv"
+    st.dataframe(
+        df_comp.style.format({"Total Cost": "${:,.0f}", "Max Inventory": "{:,.0f}", "Subcontracted": "{:,.0f}"})
+        .background_gradient(subset=['Total Cost'], cmap='Blues_r'),
+        use_container_width=True
     )
 
-if __name__ == "__main__":
-    main()
+# --- Section 4: Automated Insights ---
+st.markdown("---")
+st.subheader("💡 Operational Insights")
+
+best_strat = df_comp.iloc[0]['Strategy']
+lowest_cost = df_comp.iloc[0]['Total Cost']
+
+bottlenecks = results[results['Prod_Sub'] > 0]['Month'].tolist()
+wh_breach = results[results['Inventory'] > CONSTANTS['Warehouse Capacity']]['Month'].tolist()
+
+col_i1, col_i2 = st.columns(2)
+
+with col_i1:
+    st.info(f"**Recommendation:** The most cost-effective strategy is **{best_strat}** at **${lowest_cost:,.0f}**.")
+    if wh_breach:
+        st.warning(f"**Warehouse Warning:** Inventory exceeds 20k limit in: {', '.join(wh_breach)}. Consider renting external space.")
+    else:
+        st.success("Warehouse capacity is respected throughout the year.")
+
+with col_i2:
+    if bottlenecks:
+        st.error(f"**Capacity Bottlenecks:** Demand exceeds internal capacity (Regular + OT) in **{', '.join(bottlenecks)}**. External subcontractors are required.")
+    else:
+        st.success("Internal capacity is sufficient to meet demand without subcontracting.")
+
+# Footer
+st.markdown("---")
+st.caption("OATY 3.0 Dashboard | Operations Management | Developed with Streamlit")
