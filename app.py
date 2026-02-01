@@ -5,24 +5,30 @@ OATY 3.0 Case Study - Question 3 Analysis
 Simplified version with robust error handling
 """
 
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
 import streamlit as st
-from datetime import datetime
-import warnings
-warnings.filterwarnings('ignore')
 
-# Page configuration
+# --- 1. CONFIG MUST BE FIRST ---
+# This command must be the very first Streamlit command run.
+# We place it right after the streamlit import to prevent errors.
 st.set_page_config(
     page_title="Mandexor Memory - Production Planning Dashboard",
     page_layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Simple CSS without gradient issues
+# --- 2. NOW IMPORT OTHER LIBRARIES ---
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
+from datetime import datetime
+import warnings
+
+# Filter warnings after config
+warnings.filterwarnings('ignore')
+
+# --- 3. CSS STYLING ---
 st.markdown("""
     <style>
     .big-font {
@@ -38,7 +44,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Load data
+# --- 4. DATA LOADING & PROCESSING ---
 @st.cache_data
 def load_case_data():
     """Load all case study data"""
@@ -147,7 +153,7 @@ class ProductionPlanner:
         
         return pd.DataFrame(results), total_cost
 
-# Main app
+# --- 5. MAIN APP ---
 def main():
     st.title("📊 Mandexor Memory Production Planning Dashboard")
     st.markdown("**OATY 3.0 Case Study | Question 3: Production Level Changes**")
