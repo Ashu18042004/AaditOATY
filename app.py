@@ -1,5 +1,5 @@
 # ==============================================================================
-# OATY 3.0 OPERATIONS DASHBOARD - HIGH CONTRAST & VISIBILITY FIXED
+# OATY 3.0 OPERATIONS DASHBOARD - BLUE THEME & HIGH VISIBILITY
 # ==============================================================================
 import streamlit as st
 import pandas as pd
@@ -8,40 +8,61 @@ import plotly.graph_objects as go
 import plotly.express as px
 
 # -----------------------------------------------------------------------------
-# 1. VISUAL SETUP (STRICT WHITE BACKGROUND ENFORCEMENT)
+# 1. VISUAL SETUP (BLUE THEME + READABILITY)
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="OATY 3.0 High Vis", layout="wide")
+st.set_page_config(page_title="OATY 3.0 Dashboard", layout="wide")
 
 st.markdown("""
     <style>
-    /* 1. Force Main App Background to White */
+    /* 1. Main Background */
     .stApp {
-        background-color: #ffffff !important;
+        background-color: #f8faff !important; /* Very Light Blue-Grey */
         color: #000000 !important;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
     }
     
-    /* 2. Metric Cards (Black Borders, High Contrast) */
+    /* 2. Headers - Navy Blue & Visible */
+    h1, h2, h3, h4, label {
+        color: #1e3a8a !important; /* Navy Blue */
+        font-weight: 800 !important;
+        text-transform: uppercase;
+    }
+    
+    /* 3. Metric Cards - Professional Look */
     div[data-testid="stMetric"] {
         background-color: #ffffff !important;
-        border: 2px solid #000000 !important;
-        color: #000000 !important;
-        box-shadow: none !important;
+        border: 1px solid #bfdbfe !important; /* Light Blue Border */
+        border-left: 5px solid #1e3a8a !important; /* Thick Blue Accent */
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05) !important;
+        border-radius: 8px !important;
+        padding: 15px !important;
     }
     div[data-testid="stMetricLabel"] {
-        color: #000000 !important;
+        color: #475569 !important; /* Slate Grey */
         font-weight: bold !important;
-        text-decoration: underline;
+        font-size: 15px !important;
     }
     div[data-testid="stMetricValue"] {
-        color: #000000 !important;
+        color: #1e3a8a !important; /* Navy Blue */
         font-weight: 900 !important;
+        font-size: 32px !important;
     }
 
-    /* 3. Headers */
-    h1, h2, h3 {
+    /* 4. Sidebar */
+    section[data-testid="stSidebar"] {
+        background-color: #eff6ff !important; /* Light Blue Sidebar */
+        border-right: 1px solid #dbeafe;
+    }
+    
+    /* 5. Tables - Readable */
+    thead tr th {
+        background-color: #1e3a8a !important;
+        color: white !important;
+        font-size: 14px !important;
+    }
+    tbody tr td {
         color: #000000 !important;
-        text-transform: uppercase;
-        font-weight: 800;
+        font-weight: 500 !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -60,8 +81,8 @@ def get_data():
     # Case Constants
     CONSTANTS = {
         "Base_Cap_Wk": 16500.0,
-        "OT_Limit_Wk": 7425.0,  # 45% of Base
-        "Sun_Limit_Wk": 3300.0, # 20% of Base
+        "OT_Limit_Wk": 7425.0,  
+        "Sun_Limit_Wk": 3300.0, 
         "Whse_Cap": 20000.0
     }
     return df, CONSTANTS
@@ -69,9 +90,9 @@ def get_data():
 df_case, C = get_data()
 
 # -----------------------------------------------------------------------------
-# 3. CONTROLS
+# 3. SIDEBAR CONTROLS
 # -----------------------------------------------------------------------------
-st.sidebar.markdown("### 🛠 MODEL CONTROLS")
+st.sidebar.title("⚙️ SETTINGS")
 st.sidebar.markdown("---")
 
 scenario = st.sidebar.selectbox("DEMAND SCENARIO", ["Base Forecast", "Peak (+15%)", "Slow (-15%)"])
@@ -79,7 +100,7 @@ d_mult = 1.15 if "Peak" in scenario else (0.85 if "Slow" in scenario else 1.0)
 
 strategy = st.sidebar.selectbox("STRATEGY", ["Chase (Prioritize OT)", "Level Production", "Subcontract Heavy", "Hybrid"])
 
-st.sidebar.markdown("### 💰 COSTS")
+st.sidebar.markdown("### 💰 COST INPUTS")
 h_cost = st.sidebar.slider("HOLDING COST %", 10, 30, 20) / 100.0
 ot_rate = st.sidebar.number_input("OT MULTIPLIER", 1.0, 2.5, 1.5)
 sub_rate = st.sidebar.number_input("SUBCONTRACT MULTIPLIER", 1.0, 2.0, 1.25)
@@ -150,11 +171,11 @@ def run_model(dm, strat, hc, otr, subr, sun):
 res = run_model(d_mult, strategy, h_cost, ot_rate, sub_rate, sunday)
 
 # -----------------------------------------------------------------------------
-# 5. DASHBOARD LAYOUT (FIXED VISIBILITY)
+# 5. DASHBOARD LAYOUT
 # -----------------------------------------------------------------------------
-st.title("OATY 3.0 OPERATIONS DASHBOARD")
+st.title("🔷 OATY 3.0 OPERATIONS DASHBOARD")
 
-# --- BENCHMARKING (THINKING ENGINE) ---
+# --- BENCHMARKING ---
 strats = ["Chase (Prioritize OT)", "Level Production", "Subcontract Heavy", "Hybrid"]
 costs = {s: run_model(d_mult, s, h_cost, ot_rate, sub_rate, sunday)['Cost'].sum() for s in strats}
 best_strat = min(costs, key=costs.get)
@@ -174,77 +195,68 @@ st.markdown("---")
 # --- HIGH VISIBILITY CHARTS ---
 c1, c2 = st.columns([2, 1])
 
+# Common Axis Styling
+axis_style = dict(
+    showgrid=True, 
+    gridcolor='#e5e7eb',
+    tickfont=dict(size=12, color='black', family='Arial', weight='bold'),
+    titlefont=dict(size=14, color='black', family='Arial', weight='bold')
+)
+
 with c1:
-    st.markdown("#### PRODUCTION vs DEMAND (Stack)")
+    st.markdown("#### PRODUCTION MIX vs DEMAND")
     fig = go.Figure()
     
-    # 1. Standard (Light Grey - Distinct)
-    fig.add_trace(go.Bar(
-        x=res['Month'], y=res['Std'], name='Standard',
-        marker_color='#D3D3D3', marker_line_color='black', marker_line_width=1.5
-    ))
-    # 2. Overtime (Dark Grey)
-    fig.add_trace(go.Bar(
-        x=res['Month'], y=res['OT'], name='Overtime',
-        marker_color='#696969', marker_line_color='black', marker_line_width=1.5
-    ))
-    # 3. Subcontract (Pure Black)
-    fig.add_trace(go.Bar(
-        x=res['Month'], y=res['Sub'], name='Subcontract',
-        marker_color='#000000', marker_line_color='white', marker_line_width=1
-    ))
-    # 4. Demand Line (Red for high visibility)
-    fig.add_trace(go.Scatter(
-        x=res['Month'], y=res['Adj_Demand'], name='Demand',
-        line=dict(color='#FF0000', width=4, dash='solid')
-    ))
+    # 1. Standard (Blue)
+    fig.add_trace(go.Bar(x=res['Month'], y=res['Std'], name='Standard', marker_color='#3b82f6'))
+    # 2. Overtime (Dark Blue)
+    fig.add_trace(go.Bar(x=res['Month'], y=res['OT'], name='Overtime', marker_color='#1e3a8a'))
+    # 3. Subcontract (Orange for Contrast)
+    fig.add_trace(go.Bar(x=res['Month'], y=res['Sub'], name='Subcontract', marker_color='#f97316'))
+    # 4. Demand (Line)
+    fig.add_trace(go.Scatter(x=res['Month'], y=res['Adj_Demand'], name='Demand', line=dict(color='#dc2626', width=4)))
     
-    # FORCE WHITE BACKGROUND
     fig.update_layout(
         barmode='stack',
-        paper_bgcolor='white',
-        plot_bgcolor='white',
-        font=dict(color='black', size=14, family='Arial'),
-        legend=dict(orientation="h", y=1.1),
+        paper_bgcolor='white', plot_bgcolor='white',
+        font=dict(color='black', family='Arial'),
+        legend=dict(orientation="h", y=1.1, font=dict(color="black")),
         height=450,
-        yaxis=dict(showgrid=True, gridcolor='#E5E5E5')
+        xaxis=axis_style, yaxis=axis_style
     )
     st.plotly_chart(fig, use_container_width=True)
     st.caption("")
 
 with c2:
-    st.markdown("#### INVENTORY LEVELS (Visible Area)")
+    st.markdown("#### INVENTORY LEVELS")
     fig2 = go.Figure()
     
-    # Area Chart with VISIBLE fill
     fig2.add_trace(go.Scatter(
         x=res['Month'], y=res['Inv'], fill='tozeroy',
         mode='lines',
-        line=dict(color='black', width=3),
-        fillcolor='rgba(100, 100, 100, 0.4)', # Darker fill for visibility
+        line=dict(color='#10b981', width=3), # Green
+        fillcolor='rgba(16, 185, 129, 0.2)',
         name='Inventory'
     ))
     
-    # Limit Line
-    fig2.add_hline(y=20000, line_dash="dash", line_color="red", annotation_text="Limit (20k)")
+    fig2.add_hline(y=20000, line_dash="dash", line_color="#dc2626", annotation_text="Limit (20k)")
     
-    # FORCE WHITE BACKGROUND
     fig2.update_layout(
-        paper_bgcolor='white',
-        plot_bgcolor='white',
-        font=dict(color='black', size=14, family='Arial'),
+        paper_bgcolor='white', plot_bgcolor='white',
+        font=dict(color='black', family='Arial'),
         height=450,
-        yaxis=dict(showgrid=True, gridcolor='#E5E5E5', title="Units"),
-        xaxis=dict(showgrid=False)
+        xaxis=axis_style, yaxis=dict(**axis_style, title="Units")
     )
     st.plotly_chart(fig2, use_container_width=True)
 
-# --- STRATEGY TABLE ---
+# --- TABLE ---
 st.markdown("---")
-st.markdown("#### COST COMPARISON")
-df_comp = pd.DataFrame([{"STRATEGY": k, "COST": v} for k,v in costs.items()]).sort_values("COST")
+st.markdown("#### STRATEGY COMPARISON")
+
+df_comp = pd.DataFrame([{"STRATEGY": k, "COST": v, "DIFF": v-costs[best_strat]} for k,v in costs.items()]).sort_values("COST")
+
+# Use simple dataframe for maximum compatibility
 st.dataframe(
-    df_comp.style.format({"COST": "${:,.0f}"}),
-    use_container_width=True, 
-    hide_index=True
+    df_comp.style.format({"COST": "${:,.0f}", "DIFF": "+${:,.0f}"}),
+    use_container_width=True, hide_index=True
 )
