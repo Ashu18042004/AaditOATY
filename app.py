@@ -1,5 +1,5 @@
 # ==============================================================================
-# OATY 3.0 DASHBOARD - FIXED (NO WEIGHT ERROR) & HIGH VISIBILITY
+# OATY 3.0 OPERATIONS DASHBOARD - STABLE & HIGH VISIBILITY
 # ==============================================================================
 import streamlit as st
 import pandas as pd
@@ -24,11 +24,11 @@ st.markdown("""
     /* 2. Headers - Navy Blue & Visible */
     h1, h2, h3, h4, label {
         color: #1e3a8a !important; /* Navy Blue */
-        font-weight: 900 !important;
+        font-weight: 800 !important;
         text-transform: uppercase;
     }
     
-    /* 3. Metric Cards - Professional Look */
+    /* 3. Metric Cards */
     div[data-testid="stMetric"] {
         background-color: #ffffff !important;
         border: 2px solid #1e3a8a !important; /* Thick Navy Border */
@@ -37,12 +37,12 @@ st.markdown("""
         padding: 15px !important;
     }
     div[data-testid="stMetricLabel"] {
-        color: #1e3a8a !important; /* Navy Blue */
+        color: #1e3a8a !important; 
         font-weight: bold !important;
         font-size: 16px !important;
     }
     div[data-testid="stMetricValue"] {
-        color: #000000 !important; /* Pure Black */
+        color: #000000 !important; 
         font-weight: 900 !important;
         font-size: 36px !important;
     }
@@ -53,7 +53,7 @@ st.markdown("""
         border-right: 2px solid #1e3a8a;
     }
     
-    /* 5. Tables - Readable */
+    /* 5. Tables */
     thead tr th {
         background-color: #1e3a8a !important;
         color: white !important;
@@ -195,13 +195,21 @@ st.markdown("---")
 # --- HIGH VISIBILITY CHARTS ---
 c1, c2 = st.columns([2, 1])
 
-# FIX: Removed 'weight' property. Used 'Arial Black' for bold effect.
-axis_style = dict(
+# Robust Layout Dictionary (Standard Arial Font)
+layout_settings = dict(
+    paper_bgcolor='white', 
+    plot_bgcolor='white',
+    font=dict(color='black', family='Arial', size=12),
+    height=450
+)
+
+# Robust Axis Dictionary
+axis_config = dict(
     showgrid=True, 
-    gridcolor='#94a3b8', # Visible Grey Grid
+    gridcolor='#e2e8f0', 
     gridwidth=1,
-    tickfont=dict(size=12, color='black', family='Arial Black'), # Bold Font
-    titlefont=dict(size=14, color='#1e3a8a', family='Arial Black') # Navy Blue Title
+    tickfont=dict(color='black', size=11, family='Arial'),
+    titlefont=dict(color='#1e3a8a', size=14, family='Arial')
 )
 
 with c1:
@@ -209,22 +217,20 @@ with c1:
     fig = go.Figure()
     
     # 1. Standard (Blue)
-    fig.add_trace(go.Bar(x=res['Month'], y=res['Std'], name='Standard', marker_color='#2563eb'))
+    fig.add_trace(go.Bar(x=res['Month'], y=res['Std'], name='Standard', marker_color='#3b82f6'))
     # 2. Overtime (Navy)
     fig.add_trace(go.Bar(x=res['Month'], y=res['OT'], name='Overtime', marker_color='#1e3a8a'))
     # 3. Subcontract (Orange)
-    fig.add_trace(go.Bar(x=res['Month'], y=res['Sub'], name='Subcontract', marker_color='#ea580c'))
+    fig.add_trace(go.Bar(x=res['Month'], y=res['Sub'], name='Subcontract', marker_color='#f97316'))
     # 4. Demand (Red Line)
     fig.add_trace(go.Scatter(x=res['Month'], y=res['Adj_Demand'], name='Demand', line=dict(color='#dc2626', width=4)))
     
     fig.update_layout(
         barmode='stack',
-        paper_bgcolor='white', plot_bgcolor='white',
-        font=dict(color='black', family='Arial'),
-        legend=dict(orientation="h", y=1.1, font=dict(color="black", size=12)),
-        height=450,
-        xaxis=axis_style, 
-        yaxis=axis_style
+        legend=dict(orientation="h", y=1.1),
+        xaxis=axis_config, 
+        yaxis=axis_config,
+        **layout_settings
     )
     st.plotly_chart(fig, use_container_width=True)
     st.caption("")
@@ -236,19 +242,21 @@ with c2:
     fig2.add_trace(go.Scatter(
         x=res['Month'], y=res['Inv'], fill='tozeroy',
         mode='lines',
-        line=dict(color='#059669', width=3), # Emerald Green
-        fillcolor='rgba(16, 185, 129, 0.2)',
+        line=dict(color='#10b981', width=3), # Green
+        fillcolor='rgba(16, 185, 129, 0.2)', # CORRECT PROPERTY NAME
         name='Inventory'
     ))
     
     fig2.add_hline(y=20000, line_dash="solid", line_color="#dc2626", annotation_text="Limit (20k)")
     
+    # Axis with explicit title structure
+    y_axis_with_title = axis_config.copy()
+    y_axis_with_title['title'] = dict(text="Units", font=dict(color='#1e3a8a', size=14, family='Arial'))
+
     fig2.update_layout(
-        paper_bgcolor='white', plot_bgcolor='white',
-        font=dict(color='black', family='Arial'),
-        height=450,
-        xaxis=axis_style, 
-        yaxis=dict(**axis_style, title="Units")
+        xaxis=axis_config, 
+        yaxis=y_axis_with_title,
+        **layout_settings
     )
     st.plotly_chart(fig2, use_container_width=True)
 
